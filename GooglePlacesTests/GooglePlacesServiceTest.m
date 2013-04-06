@@ -7,17 +7,17 @@
 
 @interface GooglePlacesServiceTest ()
 
-/// The places request to test.
+/// The places service to test.
 ///
-@property (nonatomic, strong) GooglePlacesService *placesService;
+@property (nonatomic, strong) GooglePlacesService *service;
 
-/// The delegate that recieves events from a places request.
+/// A successful response with response code 200.
 ///
-@property (nonatomic, strong) MockGooglePlacesServiceDelegate *placesDelegate;
+@property (nonatomic, strong) NSHTTPURLResponse *success;
 
-/// Test JSON data retrieved from the Google Places API.
+/// A failed response with response code 404.
 ///
-@property (nonatomic, strong) NSData *jsonData;
+@property (nonatomic, strong) NSHTTPURLResponse *notFound;
 
 @end
 
@@ -27,97 +27,133 @@
 
 - (void)setUp
 {
-    self.placesService = [[NoConnectionGooglePlacesService alloc] initWithAPIKey:@"testKey"];
-
-    self.placesDelegate = [[MockGooglePlacesServiceDelegate alloc] init];
-    self.placesService.delegate = self.placesDelegate;
+    // A NoConnectionGooglePlacesService won't actually make a connection.
+    self.service = [[NoConnectionGooglePlacesService alloc]
+                    initWithAPIKey:@"testKey"];
     
-    NSBundle *unitTestBundle = [NSBundle bundleForClass:self.class];
-    NSString *jsonPath = [unitTestBundle pathForResource:@"places_example" ofType:@"json"];
-    self.jsonData = [NSData dataWithContentsOfFile:jsonPath];
+    // A successful response - 200 OK
+    self.success = [[NSHTTPURLResponse alloc] initWithURL:nil
+                                               statusCode:200
+                                              HTTPVersion:nil
+                                             headerFields:nil];
+    
+    // A failed response - 404 Not Found
+    self.notFound = [[NSHTTPURLResponse alloc] initWithURL:nil
+                                              statusCode:404
+                                             HTTPVersion:nil
+                                            headerFields:nil];
 }
 
 - (void)tearDown
 {
-    [self.placesService cancelRequest];
-    self.placesService = nil;
+    [self.service cancelRequest];
+    self.service = nil;
 }
 
 #pragma mark - Test methods
 
 - (void)testRequestCreatesURLRequest
 {
-    NSURL *url = [NSURL URLWithString:@"https://maps.googleapis.com/maps/api/place/search/json?"
-                  "key=testKey&location=44.0000000,-93.0000000&radius=10&keyword=test&sensor=true"];
+    NSURL *url = [NSURL URLWithString:@"https://maps.googleapis.com"
+                  "/maps/api/place/search/json?key=testKey"
+                  "&location=44.0000000,-93.0000000&radius=10"
+                  "&keyword=test&sensor=true"];
  
-    [self.placesService requestPlacesWithLat:44.0
-                                        lon:-93.0
-                                     radius:10
-                                    keyword:@"test"];
+    [self.service requestPlacesWithLat:44.0
+                                   lon:-93.0
+                                radius:10
+                               keyword:@"test"];
     
-    STAssertEqualObjects([self.placesService.request URL], url, @"Request should find nearby places using the Google places API.");
-}
-
-- (void)testConnectionDidReceiveResponse
-{
-    [self.placesService requestPlacesWithLat:44.0 lon:-93.0 radius:10 keyword:@"test"];
-    
-    NSHTTPURLResponse *response = [[NSHTTPURLResponse alloc] initWithURL:nil
-                                                              statusCode:200
-                                                             HTTPVersion:nil
-                                                            headerFields:nil];
-    
-    [self.placesService connection:nil didReceiveResponse:response];
-    
-    STAssertNil(self.placesService.connection, @"Should not have a connnection.");
-    STAssertEquals(self.placesService.responseData.length, 0U, @"Response data should be empty.");
-    STAssertNil(self.placesDelegate.lastError, @"200 response should not generate error.");
-}
-
-- (void)testConnectionDidReceiveResponseWithError
-{
-    [self.placesService requestPlacesWithLat:44.0 lon:-93.0 radius:10 keyword:@"test"];
-    
-    NSHTTPURLResponse *response = [[NSHTTPURLResponse alloc] initWithURL:nil
-                                                              statusCode:404
-                                                             HTTPVersion:nil
-                                                            headerFields:nil];
-    [self.placesService connection:nil didReceiveResponse:response];
-    
-    STAssertNotNil(self.placesDelegate.lastError, @"Request should fail with an error.");
-    STAssertEquals(self.placesDelegate.lastError.code, 404, @"Request should fail with error code.");
+    STAssertEqualObjects([self.service.request URL], url,
+                         @"Request should create a proper URL request.");
 }
 
 - (void)testConnectionFailedWithError
 {
-    [self.placesService requestPlacesWithLat:44.0 lon:-93.0 radius:10 keyword:@"test"];
+    NSError *error = [NSError errorWithDomain:@"FakeConnection"
+                                         code:1234
+                                     userInfo:nil];
     
-    NSError *error = [NSError errorWithDomain:@"FakeConnection" code:42 userInfo:nil];
-    [self.placesService connection:nil didFailWithError:error];
+    id delegate = [[MockGooglePlacesServiceDelegate alloc] init];
+    self.service.delegate = delegate;
     
-    STAssertEquals(self.placesDelegate.lastError, error, @"Failed connections should fail with an error.");
+    [self.service requestPlacesWithLat:44.0
+                                   lon:-93.0
+                                radius:10
+                               keyword:@"test"];
+    [self.service connection:nil didFailWithError:error];
+    
+    STAssertEquals([delegate lastError], error,
+                   @"Failed connections should fail with an error.");
+}
+
+- (void)testConnectionDidReceiveResponse
+{
+    id delegate = [[MockGooglePlacesServiceDelegate alloc] init];
+    self.service.delegate = delegate;
+
+    [self.service requestPlacesWithLat:44.0
+                                   lon:-93.0
+                                radius:10
+                               keyword:@"test"];
+    [self.service connection:nil didReceiveResponse:self.success];
+    
+    STAssertNil(self.service.connection,
+                @"Should not have a connnection.");
+    STAssertEquals(self.service.responseData.length, 0U,
+                   @"Response data should be empty.");
+    STAssertNil([delegate lastError],
+                @"200 response should not generate error.");
+}
+
+- (void)testConnectionDidReceiveResponseWithError
+{
+    id delegate = [[MockGooglePlacesServiceDelegate alloc] init];
+    self.service.delegate = delegate;
+
+    [self.service requestPlacesWithLat:44.0
+                                   lon:-93.0
+                                radius:10
+                               keyword:@"test"];
+    [self.service connection:nil didReceiveResponse:self.notFound];
+    
+    STAssertNotNil([delegate lastError],
+                   @"Request should fail with an error.");
+    STAssertEquals([delegate lastError].code, 404,
+                   @"Request should fail with a 404.");
 }
 
 - (void)testConnectionDidFinishLoading
 {
-    [self.placesService requestPlacesWithLat:44.0 lon:-93.0 radius:10 keyword:@"test"];
-    
-    NSHTTPURLResponse *response = [[NSHTTPURLResponse alloc] initWithURL:nil statusCode:200 HTTPVersion:nil headerFields:nil];
+    // Load some sample json from the bundle.
+    NSBundle *bundle = [NSBundle bundleForClass:self.class];
+    NSString *path = [bundle pathForResource:@"places_example"
+                                      ofType:@"json"];
+    NSData *json = [NSData dataWithContentsOfFile:path];
 
-    [self.placesService connection:nil didReceiveResponse:response];
-    [self.placesService connection:nil didReceiveData:self.jsonData];
-    [self.placesService connectionDidFinishLoading:nil];
+    // Setup the delegate and fake a response, sending the data.
+    id delegate = [[MockGooglePlacesServiceDelegate alloc] init];
+    self.service.delegate = delegate;
+
+    // Make the request...
+    [self.service requestPlacesWithLat:44.0
+                                   lon:-93.0
+                                radius:10
+                               keyword:@"test"];
+    [self.service connection:nil didReceiveResponse:self.success];
+    [self.service connection:nil didReceiveData:json];
+    [self.service connectionDidFinishLoading:nil];
     
-    // Wait for the response to be processed on a background queue.
+    // ...and wait for it to finish.
     dispatch_semaphore_t sema = dispatch_semaphore_create(0L);
-    [self.placesDelegate waitUntilRequestCompletes:sema];
+    [delegate waitUntilRequestCompletes:sema];
     dispatch_release(sema);
     
-    STAssertNotNil(self.placesDelegate.lastResults, @"Finished request should have results.");
-    STAssertEquals(self.placesDelegate.lastResults.count, 4U, @"Should be 4 places.");
-    
-    GooglePlacesResult *lastResult = [self.placesDelegate.lastResults lastObject];    
-    STAssertEqualObjects(lastResult.name, @"Chinatown Sydney", @"Name should match on result.");
+    // Now we can check the results.
+    STAssertNotNil([delegate lastResults],
+                   @"Finished request should have results.");
+    STAssertEquals([delegate lastResults].count, 4U,
+                   @"Should have received 4 places.");
 }
 
 @end

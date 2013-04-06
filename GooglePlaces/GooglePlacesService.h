@@ -3,7 +3,7 @@
 @protocol GooglePlacesServiceDelegate;
 
 /// A service for making requests to the Google Places API.
-/// See https://developers.google.com/places/documentation/search for documentation.
+/// See https://developers.google.com/places/documentation/search
 ///
 @interface GooglePlacesService : NSObject<NSURLConnectionDataDelegate>
 

@@ -74,7 +74,7 @@
     }
     else
     {
-        NSError *error = [NSError errorWithDomain:GooglePlacesRequestErrorDomain
+        NSError *error = [NSError errorWithDomain:GooglePlacesServiceDomain
                                              code:[httpResponse statusCode]
                                          userInfo:nil];
         [self.delegate placesRequestFailedWithError:error];

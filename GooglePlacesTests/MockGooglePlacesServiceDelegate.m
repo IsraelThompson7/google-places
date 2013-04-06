@@ -9,7 +9,6 @@
 {
     _sema = sema;
     
-    dispatch_retain(_sema);
     dispatch_semaphore_wait(sema, DISPATCH_TIME_FOREVER);
 }
 
@@ -20,7 +19,6 @@
     if (_sema)
     {
         dispatch_semaphore_signal(_sema);
-        dispatch_release(_sema);
     }
 }
 
@@ -31,7 +29,6 @@
     if (_sema)
     {
         dispatch_semaphore_signal(_sema);
-        dispatch_release(_sema);
     }
 }
 

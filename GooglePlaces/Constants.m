@@ -1,3 +1,3 @@
 #import "Constants.h"
 
-NSString * const GooglePlacesRequestErrorDomain = @"GooglePlacesRequestErrorDomain";
+NSString * const GooglePlacesServiceDomain = @"GooglePlacesServiceDomain";

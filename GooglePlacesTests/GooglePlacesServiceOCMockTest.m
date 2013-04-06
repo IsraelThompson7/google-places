@@ -9,19 +9,15 @@
 
 /// The places service to test.
 ///
-@property (nonatomic, strong) id placesService;
-
-/// Test JSON data retrieved from the Google Places API.
-///
-@property (nonatomic, strong) NSData *jsonData;
+@property (nonatomic, strong) id service;
 
 /// A successful response with response code 200.
 ///
-@property (nonatomic, strong) NSHTTPURLResponse *successfulResponse;
+@property (nonatomic, strong) NSHTTPURLResponse *success;
 
 /// A failed response with response code 404.
 ///
-@property (nonatomic, strong) NSHTTPURLResponse *failedResponse;
+@property (nonatomic, strong) NSHTTPURLResponse *notFound;
 
 @end
 
@@ -32,152 +28,160 @@
 - (void)setUp
 {
     // The service we'll be testing.
-    GooglePlacesService *placesService = [[GooglePlacesService alloc] initWithAPIKey:@"testKey"];
+    GooglePlacesService *placesService = [[GooglePlacesService alloc]
+                                          initWithAPIKey:@"testKey"];
     
-    // Create a partial mock that stubs the startRequest method to prevent actual connections.
-    self.placesService = [OCMockObject partialMockForObject:placesService];
-    [[self.placesService stub] startRequest];
+    // Create a partial mock that wraps the real service
+    // instead of a subclass.  Just stub startRequest.
+    self.service = [OCMockObject partialMockForObject:placesService];
+    [[self.service stub] startRequest];
     
-    self.successfulResponse = [[NSHTTPURLResponse alloc] initWithURL:nil
-                                                          statusCode:200
-                                                         HTTPVersion:nil
-                                                        headerFields:nil];
+    // A successful response - 200 OK
+    self.success = [[NSHTTPURLResponse alloc] initWithURL:nil
+                                               statusCode:200
+                                              HTTPVersion:nil
+                                             headerFields:nil];
     
-    self.failedResponse = [[NSHTTPURLResponse alloc] initWithURL:nil
-                                                      statusCode:404
-                                                     HTTPVersion:nil
-                                                    headerFields:nil];
-
-    // Load an example json from the test bundle.
-    NSBundle *unitTestBundle = [NSBundle bundleForClass:self.class];
-    NSString *jsonPath = [unitTestBundle pathForResource:@"places_example" ofType:@"json"];
-    self.jsonData = [NSData dataWithContentsOfFile:jsonPath];
+    // A failed response - 404 Not Found
+    self.notFound = [[NSHTTPURLResponse alloc] initWithURL:nil
+                                                statusCode:404
+                                               HTTPVersion:nil
+                                              headerFields:nil];
 }
 
 - (void)tearDown
 {
-    self.placesService = nil;    
-    self.jsonData = nil;
+    [self.service cancelRequest];
+    self.service = nil;
 }
 
 #pragma mark - Test methods
 
 - (void)testRequestCreatesURLRequest
 {
-    NSURL *url = [NSURL URLWithString:@"https://maps.googleapis.com/maps/api/place/search/json?"
-                  "key=testKey&location=44.0000000,-93.0000000&radius=10&keyword=test&sensor=true"];
+    NSURL *url = [NSURL URLWithString:@"https://maps.googleapis.com"
+                  "/maps/api/place/search/json?key=testKey"
+                  "&location=44.0000000,-93.0000000&radius=10"
+                  "&keyword=test&sensor=true"];
     
-    [self.placesService requestPlacesWithLat:44.0
-                                         lon:-93.0
-                                      radius:10
-                                     keyword:@"test"];
+    [self.service requestPlacesWithLat:44.0
+                                   lon:-93.0
+                                radius:10
+                               keyword:@"test"];
     
-    STAssertEqualObjects([[self.placesService request] URL], url, @"Request should find nearby places using the Google places API.");
-    [self.placesService cancelRequest];
+    STAssertEqualObjects([[self.service request] URL], url,
+                         @"Request should create a proper URL request.");
+}
+
+- (void)testConnectionFailedWithError
+{    
+    // Creates a mock delegate.  No separate class required.
+    id delegate = [OCMockObject mockForProtocol:
+                   @protocol(GooglePlacesServiceDelegate)];
+    [self.service setDelegate:delegate];
+
+    NSError *error = [NSError errorWithDomain:@"FakeDomain"
+                                         code:42
+                                     userInfo:nil];
+
+    // placesRequestFailedWithError: *must* be called with error.
+    [[delegate expect] placesRequestFailedWithError:error];
+    
+    [self.service requestPlacesWithLat:44.0
+                                   lon:-93.0
+                                radius:10
+                               keyword:@"test"];
+    [self.service connection:nil didFailWithError:error];
+    
+    [delegate verify];
 }
 
 - (void)testConnectionDidReceiveResponseWithError
 {
-    NSError *error404 = [NSError errorWithDomain:GooglePlacesRequestErrorDomain code:404 userInfo:nil];
-    
-    // Expect a mock delegate to be called with the error.
-    id mockPlacesDelegate = [OCMockObject mockForProtocol:@protocol(GooglePlacesServiceDelegate)];
-    [[mockPlacesDelegate expect] placesRequestFailedWithError:error404];
-    
-    [self.placesService setDelegate:mockPlacesDelegate];
+    // Creates a mock delegate.  No separate class required.
+    id delegate = [OCMockObject mockForProtocol:
+                   @protocol(GooglePlacesServiceDelegate)];
+    [self.service setDelegate:delegate];
 
-    // Request -> 404 Response
-    [self.placesService requestPlacesWithLat:44.0
-                                         lon:-93.0
-                                      radius:10
-                                     keyword:@"test"];
-    [self.placesService connection:nil didReceiveResponse:self.failedResponse];
+    NSError *error404 = [NSError errorWithDomain:GooglePlacesServiceDomain
+                                            code:404
+                                        userInfo:nil];
 
-    [mockPlacesDelegate verify];
-}
+    // placesRequestFailedWithError: *must* be called with error404.
+    [[delegate expect] placesRequestFailedWithError:error404];
+    
+    [self.service requestPlacesWithLat:44.0
+                                   lon:-93.0
+                                radius:10
+                               keyword:@"test"];
+    [self.service connection:nil didReceiveResponse:self.notFound];
 
-- (void)testConnectionFailedWithError
-{
-    NSError *fakeError = [NSError errorWithDomain:@"FakeConnectionErrorDomain" code:42 userInfo:nil];
-    
-    // Expect a mock delegate to be called with an error.
-    id mockPlacesDelegate = [OCMockObject mockForProtocol:@protocol(GooglePlacesServiceDelegate)];
-    [[mockPlacesDelegate expect] placesRequestFailedWithError:fakeError];
-    
-    [self.placesService setDelegate:mockPlacesDelegate];
-    
-    // Request -> Failed
-    [self.placesService requestPlacesWithLat:44.0 lon:-93.0 radius:10 keyword:@"test"];
-    [self.placesService connection:nil didFailWithError:fakeError];
-    
-    [mockPlacesDelegate verify];
+    [delegate verify];
 }
 
 - (void)testConnectionDidReceiveResponse
 {
-    // Nice mocks do not fail when unexpected methods are called.
-    id mockPlacesDelegate = [OCMockObject niceMockForProtocol:@protocol(GooglePlacesServiceDelegate)];
-    [self.placesService setDelegate:mockPlacesDelegate];
-    
-    // But they can be used to ensure that unwanted calls are rejected.  Here, we reject any errors.
-    [[mockPlacesDelegate reject] placesRequestFailedWithError:OCMOCK_ANY];
-    
-    // A successful response
-    NSHTTPURLResponse *response = [[NSHTTPURLResponse alloc] initWithURL:nil
-                                                              statusCode:200
-                                                             HTTPVersion:nil
-                                                            headerFields:nil];
+    // Nice mocks don't fail when unexpected methods are called.
+    id delegate = [OCMockObject niceMockForProtocol:
+                   @protocol(GooglePlacesServiceDelegate)];
+    [self.service setDelegate:delegate];
 
-    // Request -> Response
-    [self.placesService requestPlacesWithLat:44.0 lon:-93.0 radius:10 keyword:@"test"];    
-    [self.placesService connection:nil didReceiveResponse:response];
+    // But they can be used to reject unwanted calls.
+    [[delegate reject] placesRequestFailedWithError:OCMOCK_ANY];
+
+    [self.service requestPlacesWithLat:44.0
+                                   lon:-93.0
+                                radius:10
+                               keyword:@"test"];
+    [self.service connection:nil didReceiveResponse:self.success];
     
-    STAssertEquals([self.placesService responseData].length, 0U, @"Response data should be empty.");
+    STAssertEquals([self.service responseData].length, 0U,
+                   @"Response data should be empty.");
     
-    [mockPlacesDelegate verify];
+    [delegate verify];
 }
 
 - (void)testConnectionDidFinishLoading
 {
-    // Create a semaphore that will be signaled when the call is made.
+    // Load an example json from the test bundle.
+    NSBundle *bundle = [NSBundle bundleForClass:self.class];
+    NSString *path = [bundle pathForResource:@"places_example"
+                                      ofType:@"json"];
+    NSData *json = [NSData dataWithContentsOfFile:path];
+    
+    // Creates a mock delegate.  No separate class required.
+    id delegate = [OCMockObject mockForProtocol:
+                             @protocol(GooglePlacesServiceDelegate)];
+    [self.service setDelegate:delegate];
+    
+    // Create a semaphore that to wait for later.
     dispatch_semaphore_t sema = dispatch_semaphore_create(0L);
     
-    id mockPlacesDelegate = [OCMockObject mockForProtocol:@protocol(GooglePlacesServiceDelegate)];
-
-    // We expect 
-    [[[mockPlacesDelegate expect]
-      andDo:^(NSInvocation *invocation)
-    {
-        // When invoked, signal the semaphore to continue execution.
-        dispatch_semaphore_signal(sema);        
-    }]
-     placesRequestCompletedWithResults:[OCMArg checkWithBlock:^BOOL(id parameter)
-    {
-        // Make sure that we received all 4 results.
+    // When placesRequestCompletedWithResults is called, the semaphore
+    // is signaled.
+    [[[delegate expect] andDo:^(NSInvocation *invocation) {
+        dispatch_semaphore_signal(sema);
+    }] placesRequestCompletedWithResults:[OCMArg checkWithBlock:^BOOL(id parameter) {
         NSArray *results = parameter;
-        return results.count == 4;
+        return results.count == 4;        
     }]];
     
-    [self.placesService setDelegate:mockPlacesDelegate];
+    // Make the request...
+    [self.service requestPlacesWithLat:44.0
+                                   lon:-93.0
+                                radius:10
+                               keyword:@"test"];
+    [self.service connection:nil didReceiveResponse:self.success];
+    [self.service connection:nil didReceiveData:json];
+    [self.service connectionDidFinishLoading:nil];
     
-    // A successful response.
-    NSHTTPURLResponse *response = [[NSHTTPURLResponse alloc] initWithURL:nil
-                                                              statusCode:200
-                                                             HTTPVersion:nil
-                                                            headerFields:nil];
-
-    // Request -> Response -> Data -> Finish
-    [self.placesService requestPlacesWithLat:44.0 lon:-93.0 radius:10 keyword:@"test"];
-    [self.placesService connection:nil didReceiveResponse:response];
-    [self.placesService connection:nil didReceiveData:self.jsonData];
-    [self.placesService connectionDidFinishLoading:nil];
-    
-    // Wait up to 5 seconds for the call to be made.
+    // ...and wait for it to finish.
     dispatch_time_t popTime = dispatch_time(DISPATCH_TIME_NOW, 5 * NSEC_PER_SEC);
     dispatch_semaphore_wait(sema, popTime);
     dispatch_release(sema);
     
-    [mockPlacesDelegate verify];
+    // Now its OK to verify.
+    [delegate verify];
 }
 
 
