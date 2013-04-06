@@ -20,7 +20,10 @@
 
 #pragma mark - Private methods
 
-- (NSURL *)URLWithLat:(double)lat lon:(double)lon radius:(int)radius keyword:(NSString *)keyword
+- (NSURL *)URLWithLat:(double)lat
+                  lon:(double)lon
+               radius:(int)radius
+              keyword:(NSString *)keyword
 {
     NSString *urlString = [NSString stringWithFormat:@"https://maps.googleapis.com/maps/api/place/"
                            "search/json?key=%@&location=%.7f,%.7f&radius=%d&keyword=%@&sensor=true",
@@ -40,7 +43,10 @@
                      radius:(NSUInteger)radius
                     keyword:(NSString *)keyword
 {
-    NSURL *url = [self URLWithLat:lat lon:lon radius:radius keyword:keyword];
+    NSURL *url = [self URLWithLat:lat
+                              lon:lon
+                           radius:radius
+                          keyword:keyword];
     self.request = [NSURLRequest requestWithURL:url];
     
     // Cancel any in flight requests.
@@ -60,7 +66,8 @@
 
 - (void)startRequest
 {
-    self.connection = [NSURLConnection connectionWithRequest:self.request delegate:self];
+    self.connection = [NSURLConnection connectionWithRequest:self.request
+                                                    delegate:self];
 }
 
 #pragma mark - NSURLConnectionDelegate methods

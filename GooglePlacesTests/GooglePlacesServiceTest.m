@@ -98,8 +98,6 @@
                                keyword:@"test"];
     [self.service connection:nil didReceiveResponse:self.success];
     
-    STAssertNil(self.service.connection,
-                @"Should not have a connnection.");
     STAssertEquals(self.service.responseData.length, 0U,
                    @"Response data should be empty.");
     STAssertNil([delegate lastError],
